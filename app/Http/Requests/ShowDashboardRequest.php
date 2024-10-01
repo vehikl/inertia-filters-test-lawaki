@@ -15,6 +15,7 @@ class ShowDashboardRequest extends FormRequest
             'department.*' => ['sometimes', 'string', 'nullable'],
             'page' => ['sometimes', 'integer', 'nullable', 'min:1'],
             'limit' => ['sometimes', 'integer', 'nullable', 'min:1'],
+            'employee_id' => ['sometimes', 'integer', 'nullable'],
         ];
     }
 }

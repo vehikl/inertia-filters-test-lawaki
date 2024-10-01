@@ -3,10 +3,11 @@ import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import {Head, router} from '@inertiajs/vue3';
 import {computed} from "vue";
 import SecondaryButton from "@/Components/SecondaryButton.vue";
+import {useSearchItem} from "@/Composables/useSearchItem";
 
 type Filter<TKey extends string = string> = {
   options: Record<TKey, string[]>
-  selected: Record<TKey, string | undefined>
+  selected: Record<TKey, string | null>
 }
 
 type Pagination = {
@@ -14,6 +15,11 @@ type Pagination = {
   limit: number
   pages: number
   total: number
+}
+
+type Defaults = {
+  limit: number
+  page: number
 }
 
 type TableRecord = {
@@ -27,46 +33,73 @@ type Props = {
   filter: Filter<'brand' | 'company' | 'department'>,
   records: TableRecord[]
   pagination: Pagination
+  defaults: Defaults
+  employee: { id: number, name: string } | null
 }
 
 const props = defineProps<Props>()
 
 const pages = computed(() => Array.from({length: props.pagination.pages}, (_, i) => i + 1))
 
+const { search, suggestions } = useSearchItem(() => props.employee ?  ({ key: props.employee.id, label: props.employee.name}) : null)
+
 const query = computed(() => ({
   ...props.filter.selected,
   page: props.pagination.page,
-  limit: props.pagination.limit
+  limit: props.pagination.limit,
+  employee_id: props.employee?.id,
 }))
 
-function updateQuery(key: string, value: unknown): void {
-  router.get(route('dashboard'), {...query.value, [key]: value, page: 1}, {
+function sanitizePayload(data: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(data).filter(([key, value]) => {
+    if (Object.hasOwn(props.defaults, key)) {
+      return props.defaults[key as keyof Defaults] !== value
+    }
+
+    return value != null
+  }))
+}
+
+function reload(data: Record<string, unknown>): void {
+  router.get(route('dashboard'), sanitizePayload(data) as Record<string, string>, {
     preserveState: true,
     preserveScroll: true,
     replace: true,
   })
 }
 
-function resetFilter(): void {
-  router.get(route('dashboard'), {}, {
-    preserveState: true,
-    preserveScroll: true,
-    replace: true,
+function updateFilter(key: string, value: unknown): void {
+  reload({
+    ...query.value,
+    [key]: value,
+    page: 1,
+    employee_id: null
   })
+}
+
+function resetFilter(data: Record<string, unknown> = {}): void {
+  reload({ limit: props.pagination.limit, ...data })
 }
 
 function changePage(page: number): void {
-  router.get(route('dashboard'), {...query.value, page}, {
-    preserveState: true,
-    preserveScroll: true,
-    replace: true,
-  })
+  reload({...query.value, page})
 }
 
-function handleFilterChange(key: string, e: Event): void {
-  if (e.target && 'value' in e.target && typeof e.target.value === 'string') {
-    updateQuery(key, e.target.value)
+type HandlingOptions = {
+  as: 'string' | 'number',
+  reset: boolean,
+}
+
+function handleFilterChange(key: string, e: Event, {as = 'string', reset = false}: Partial<HandlingOptions> = {}): void {
+  const target = e.target as HTMLInputElement & HTMLSelectElement & HTMLTextAreaElement
+  const value = as === 'string' ? target.value : Number(target.value)
+
+  if (reset) {
+    resetFilter({[key]: value})
+    return
   }
+
+  updateFilter(key, value)
 }
 
 </script>
@@ -88,7 +121,7 @@ function handleFilterChange(key: string, e: Event): void {
         <div
           class="overflow-hidden bg-white shadow-sm sm:rounded-lg"
         >
-          <div class="p-6 text-gray-900">
+          <div class="p-6 text-gray-900 flex flex-col gap-4 items-start">
             <label class="block">
               <span class="block">Brand</span>
               <select
@@ -106,6 +139,17 @@ function handleFilterChange(key: string, e: Event): void {
                 @change="(e) => handleFilterChange('company', e)"
               >
                 <option v-for="option in filter.options.company">{{ option }}</option>
+              </select>
+            </label>
+
+            <label class="block">
+              <span class="block">Employee</span>
+              <input v-model="search">
+              <select v-if="suggestions.length"
+                :value="props.employee?.id"
+                @change="(e) => handleFilterChange('employee_id', e, {as: 'number', reset: true})"
+              >
+                <option v-for="{key, label} in suggestions" :value="key">{{ label }}</option>
               </select>
             </label>
 
@@ -128,7 +172,7 @@ function handleFilterChange(key: string, e: Event): void {
           </table>
 
           <div class="inline-block ml-6">
-            <select :value="pagination.limit" @change="(e) => handleFilterChange('limit', e)">
+            <select :value="pagination.limit" @change="(e) => handleFilterChange('limit', e, {as: 'number'})">
               <option>1</option>
               <option>2</option>
               <option>5</option>

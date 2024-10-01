@@ -88,16 +88,24 @@ Route::get('/dashboard', function (ShowDashboardRequest $request) {
     $departments = $company === null ? [] :
         (array_intersect($request->input('department', []), array_keys($brands[$brand][$company])) ? $request->input('department', []) : []);
 
-    $page = $request->integer('page', 1);
-    $limit = $request->integer('limit', 2);
+    $employeeId = $request->input('employee_id') === null ? null : $request->integer('employee_id');
+
+    if ($employeeId) {
+        $brand = null;
+        $company = null;
+        $departments = [];
+    }
 
     $records = $employees
         ->filter(fn ($employee) => $brand === null || $employee['brand'] === $brand)
         ->filter(fn ($employee) => $company === null || $employee['company'] === $company)
         ->filter(fn ($employee) => $departments === [] || in_array($employee['department'], $departments))
-        ->values();
+        ->filter(fn ($employee) => $employeeId === null || $employee['id'] === $employeeId);
 
+    $limit = $request->integer('limit', 2);
     $total = $records->count();
+    $pages = ceil($total/ $limit);
+    $page = min($request->integer('page', 1), $pages);
 
     return Inertia::render('Dashboard', [
         'filter' => [
@@ -115,10 +123,15 @@ Route::get('/dashboard', function (ShowDashboardRequest $request) {
         'pagination' => [
             'page' => $page,
             'limit' => $limit,
-            'pages' => ceil($total/ $limit),
+            'pages' => $pages,
             'total' => $total,
         ],
-        'records' => $records->forPage($page, $limit),
+        'defaults' => [
+            'limit' => 2,
+            'page' => 1
+        ],
+        'employee' => $employees->first(fn($employee) => $employee['id'] === $request->integer('employee_id')),
+        'records' => $records->forPage($page, $limit)->values(),
     ]);
 })->middleware(['auth', 'verified'])->name('dashboard');
 
